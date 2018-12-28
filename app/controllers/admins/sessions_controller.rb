@@ -1,10 +1,14 @@
-class Admins::SessionsController < Devise::SessionsController
-  layout "login"
-  before_filter :check_first_user, only: :new
+# frozen_string_literal: true
 
-  private
+module Admins
+  class SessionsController < Devise::SessionsController
+    layout "login"
+    before_action :check_first_user, only: :new
 
-  def check_first_user
-    redirect_to new_admin_registration_url if Admin.first.nil?
+    private
+
+    def check_first_user
+      redirect_to new_admin_registration_url if Admin.first.nil?
+    end
   end
 end

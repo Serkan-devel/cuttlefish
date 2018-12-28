@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class Delivery < ActiveRecord::Base
   belongs_to :email
   belongs_to :address
@@ -9,35 +11,30 @@ class Delivery < ActiveRecord::Base
   belongs_to :app
 
   delegate :from, :from_address, :from_domain, :text_part, :html_part, :data,
-    :click_tracking_enabled?, :open_tracking_enabled?, :subject, to: :email
+           :click_tracking_enabled?, :open_tracking_enabled?, :subject,
+           to: :email
 
-  delegate :tracking_domain, :custom_tracking_domain?, to: :app
-  
+  delegate :tracking_domain_info, to: :app
+
   before_save :update_my_status!
   before_create :update_app_id!
+
+  scope :from_address,
+        ->(address) { joins(:email).where(emails: { from_address: address }) }
+  scope :to_address, ->(address) { where(address: address) }
 
   # Should this email be sent to this address?
   # If not it's because the email has bounced
   def send?
-    !address.blacklisted?(app.team)
-  end
-
-  def self.today
-    where('deliveries.created_at > ?', Date.today.beginning_of_day)
-  end
-
-  def self.this_week
-    where('deliveries.created_at > ?', 7.days.ago)
-  end
-
-  # This delivery is being open tracked
-  def set_open_tracked!
-    update_attributes(open_tracked: true)
+    # If there is no team there is no deny list
+    # In concrete terms the internal cuttlefish app doesn't have a deny
+    # list and isn't part of a team
+    app.team.nil? || address.deny_lists.find_by(team_id: app.team.id).nil?
   end
 
   def add_open_event(request)
     open_events.create!(
-      user_agent: request.env['HTTP_USER_AGENT'],
+      user_agent: request.env["HTTP_USER_AGENT"],
       referer: request.referer,
       ip: request.remote_ip
     )
@@ -69,30 +66,54 @@ class Delivery < ActiveRecord::Base
   end
 
   def opened?
-    open_events.size > 0
+    !open_events.empty?
   end
 
   def clicked?
-    delivery_links.any?{|delivery_link| delivery_link.click_events.size > 0}
+    delivery_links.any?(&:clicked?)
   end
 
   def app_name
     app.name
   end
 
-  # A value between 0 and 1. The fraction of deliveries with open tracking for which the delivery was opened
-  # Returns nil when there are no deliveries with open tracking (which would otherwise cause a division by
+  # A value between 0 and 1. The fraction of deliveries with open tracking
+  # for which the delivery was opened. Returns nil when there are no
+  # deliveries with open tracking (which would otherwise cause a division by
   # zero error)
   def self.open_rate(deliveries)
     n = deliveries.where("open_events_count > 0").count
-    total =  deliveries.where(open_tracked: true).count
-    (n.to_f / total) if total > 0
+    total = deliveries.where(open_tracked: true).count
+    (n.to_f / total) if total.positive?
   end
 
   def self.click_rate(deliveries)
-    # By doing an _inner_ join we only end up counting deliveries that have click_events
-    n = deliveries.joins(:delivery_links).where("click_events_count > 0").select("distinct(deliveries.id)").count
-    total =  deliveries.joins(:delivery_links).select("distinct(deliveries.id)").count
-    (n.to_f / total) if total > 0
+    # By doing an _inner_ join we only end up counting deliveries that
+    # have click_events
+    n = deliveries.joins(:delivery_links).where("click_events_count > 0")
+                  .select("distinct(deliveries.id)").count
+    total = deliveries.joins(:delivery_links)
+                      .select("distinct(deliveries.id)").count
+    (n.to_f / total) if total.positive?
+  end
+
+  def self.stats(deliveries)
+    OpenStruct.new(
+      total_count: deliveries.count || 0,
+      delivered_count:
+        deliveries.group("deliveries.status").count["delivered"] || 0,
+      soft_bounce_count:
+        deliveries.group("deliveries.status").count["soft_bounce"] || 0,
+      hard_bounce_count:
+        deliveries.group("deliveries.status").count["hard_bounce"] || 0,
+      not_sent_count:
+        deliveries.group("deliveries.status").count["not_sent"] || 0,
+      open_rate: open_rate(deliveries),
+      click_rate: click_rate(deliveries)
+    )
+  end
+
+  def content_available?
+    !data.nil?
   end
 end

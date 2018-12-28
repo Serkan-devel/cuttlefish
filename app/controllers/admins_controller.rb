@@ -1,9 +1,21 @@
-class AdminsController < ApplicationController
-  after_action :verify_authorized, except: :index
-  after_action :verify_policy_scoped, only: :index
+# frozen_string_literal: true
 
+class AdminsController < ApplicationController
   def index
+    result = api_query
+    @admins = result.data.admins
+
     @admin = Admin.new
-    @admins = policy_scope(Admin)
+  end
+
+  def destroy
+    result = api_query id: params[:id]
+    if result.data.remove_admin
+      admin = result.data.remove_admin.admin
+      flash[:notice] = "#{admin.display_name} removed"
+    else
+      flash[:alert] = "Couldn't remove admin."
+    end
+    redirect_to admins_url
   end
 end

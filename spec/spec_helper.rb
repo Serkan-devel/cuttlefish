@@ -1,34 +1,43 @@
-require 'simplecov'
-require 'coveralls'
+# frozen_string_literal: true
+
+require "simplecov"
+require "coveralls"
 
 # Generate coverage locally in html as well as in coveralls.io
-SimpleCov.formatter = SimpleCov::Formatter::MultiFormatter[
-  SimpleCov::Formatter::HTMLFormatter,
-  Coveralls::SimpleCov::Formatter
-]
-SimpleCov.start('rails')
+SimpleCov.formatter = SimpleCov::Formatter::MultiFormatter.new(
+  [
+    SimpleCov::Formatter::HTMLFormatter,
+    Coveralls::SimpleCov::Formatter
+  ]
+)
+SimpleCov.start("rails")
 
-require 'capybara/rspec'
+require "capybara/rspec"
 # PhantomJS currently has some issues with font loading. So, for the time being
 # using selenium instead
-#require 'capybara/poltergeist'
-#Capybara.javascript_driver = :poltergeist
-require 'database_cleaner'
+# require 'capybara/poltergeist'
+# Capybara.javascript_driver = :poltergeist
+require "database_cleaner"
 
-#DatabaseCleaner.strategy = :truncation
+# DatabaseCleaner.strategy = :truncation
 
 # This file is copied to spec/ when you run 'rails generate rspec:install'
-ENV["RAILS_ENV"] ||= 'test'
-require File.expand_path("../../config/environment", __FILE__)
-require 'rspec/rails'
+ENV["RAILS_ENV"] ||= "test"
+require File.expand_path("../config/environment", __dir__)
+require "rspec/rails"
 
 # Requires supporting ruby files with custom matchers and macros, etc,
 # in spec/support/ and its subdirectories.
-Dir[Rails.root.join("spec/support/**/*.rb")].each {|f| require f}
+Dir[Rails.root.join("spec/support/**/*.rb")].each { |f| require f }
 
 # Checks for pending migrations before tests are run.
 # If you are not using ActiveRecord, you can remove this line.
 ActiveRecord::Migration.check_pending! if defined?(ActiveRecord::Migration)
+
+VCR.configure do |config|
+  config.cassette_library_dir = "spec/fixtures/vcr_cassettes"
+  config.hook_into :webmock
+end
 
 RSpec.configure do |config|
   # ## Mock Framework
@@ -59,12 +68,16 @@ RSpec.configure do |config|
   config.order = "random"
 
   config.before :each do
-    cache = EmailDataCache.new(Rails.env, Rails.configuration.max_no_emails_to_store)
+    cache = EmailDataCache.new(
+      Rails.env.to_s, Rails.configuration.max_no_emails_to_store
+    )
     FileUtils.rm_rf cache.data_filesystem_directory
   end
 
   config.after :each do
-    cache = EmailDataCache.new(Rails.env, Rails.configuration.max_no_emails_to_store)
+    cache = EmailDataCache.new(
+      Rails.env.to_s, Rails.configuration.max_no_emails_to_store
+    )
     FileUtils.rm_rf cache.data_filesystem_directory
   end
 
@@ -80,4 +93,6 @@ RSpec.configure do |config|
   config.after(:each) do
     DatabaseCleaner.clean
   end
+
+  config.include FactoryBot::Syntax::Methods
 end

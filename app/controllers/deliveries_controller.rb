@@ -1,27 +1,29 @@
+# frozen_string_literal: true
+
 class DeliveriesController < ApplicationController
-  after_action :verify_authorized, except: :index
-  after_action :verify_policy_scoped, only: :index
-
   def index
-    @status = params[:status]
-    @search = params[:search]
-    if params[:app_id]
-      @app = App.find(params[:app_id])
-      authorize @app, :show?
-      @deliveries = @app.deliveries
+    if params[:search]
+      redirect_to to_address_url(id: params[:search])
     else
-      @deliveries = policy_scope(Delivery)
+      @status = params[:status]
+      @deliveries = WillPaginate::Collection.create(
+        params[:page] || 1,
+        WillPaginate.per_page
+      ) do |pager|
+        result = api_query status: params[:status], app_id: params[:app_id],
+                           limit: pager.per_page, offset: pager.offset
+        pager.replace(result.data.emails.nodes)
+        pager.total_entries = result.data.emails.total_count
+
+        @apps = result.data.apps
+        @app = @apps.find { |a| a.id == params[:app_id] } if params[:app_id]
+      end
     end
-
-    @deliveries = @deliveries.where(status: @status) if @status
-    @deliveries = @deliveries.joins(:email).where("emails.app_id" => @app.id) if @app
-    @deliveries = @deliveries.joins(:address).where("addresses.text" => @search) if @search
-
-    @deliveries = @deliveries.includes(:delivery_links, :postfix_log_lines, :email, :address).order("deliveries.created_at DESC").page(params[:page])
   end
 
   def show
-    @delivery = Delivery.find(params[:id])
-    authorize @delivery
+    result = api_query id: params[:id]
+    @delivery = result.data.email
+    @configuration = result.data.configuration
   end
 end
